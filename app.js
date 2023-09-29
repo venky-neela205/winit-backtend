@@ -3,7 +3,6 @@ const { open } = require("sqlite")
 const sqlite3 = require("sqlite3")
 const cors = require("cors")
 const path = require("path")
-const { isatty } = require("tty")
 
 const dbPath = path.join(__dirname, "routesApp.db")
 
@@ -32,22 +31,90 @@ const InitializeDbAndServer = async () => {
 
 InitializeDbAndServer()
 
-// app.get('/customerList', async (request, response) => {
-//     const getCustomerListQuery = `
-//         SELECT
-//           Code,
-//           Name
-//         From 
-//           route;`;
+app.get('/selectedCustomers/:routeCode', async (request, response) => {
+    const { routeCode } = request.params;
+  
+    const getSelectedCustomerDataQuery = `
+      SELECT *
+      FROM RouteStore
+      WHERE RouteCode = '${routeCode}'`;
+  
+    const getSelectedCustomerCountQuery = `
+      SELECT COUNT(*) AS customerCount
+      FROM RouteStore
+      WHERE RouteCode = '${routeCode}'`;
+  
+    try {
+      const [dataResult, countResult] = await Promise.all([
+        db.all(getSelectedCustomerDataQuery),
+        db.get(getSelectedCustomerCountQuery),
+      ]);
+  
+      if (countResult && countResult.customerCount !== undefined) {
+        const customerData = dataResult || [];
+        const customerCount = countResult.customerCount;
+        response.json({ data: customerData, count: customerCount });
+      } else {
+        response.status(404).json({ error: 'Route code not found' });
+      }
+    } catch (error) {
+      console.error(error);
+      response.status(500).send('Internal Server Error');
+    }
+  });
+  
+
+app.post('/selectedCustomers', async (request, response) => {
+    const { routecode, selectedCustomers } = request.body; // Correct the property name to "routecode"
     
-//           try {
-//             const customerList = await db.all(getCustomerListQuery);
-//             response.send(customerList);
-//         } catch (error) {
-//             console.error(error);
-//             response.status(500).send('Internal Server Error');
-//         }
-// })
+    for (const customer of selectedCustomers) {
+        const { customerCode, customerName, customerAddress } = customer;
+        
+        const insertSelectedCustomerListQuery = `
+            INSERT INTO RouteStore (Code, Name, Address, RouteCode)
+            VALUES (
+                '${customerCode}',
+                '${customerName}',
+                '${customerAddress}',
+                '${routecode}'
+            );`;
+
+        try {
+            await db.run(insertSelectedCustomerListQuery);
+        } catch (error) {
+            console.error(error);
+            response.status(500).send('Internal Server Error');
+            return; // Return to avoid sending a response in case of an error
+        }
+    }
+    
+    response.json({ message: 'Customers Stored Successfully' });
+});
+
+app.post('/schedule', async (request, response) => {
+    const { code, isActiveSun, isActiveMon, isActiveTue, isActiveWed, isActiveThu, isActiveFri, isActiveSat } = request.body;
+
+    const insertScheduleQuery = `
+        INSERT INTO RoutePlanSchedule (RouteId, Sun, Mon, Tue, Wed, Thu, Fri, Sat)
+        VALUES (
+            '${code}',
+            ${isActiveSun},
+            ${isActiveMon},
+            ${isActiveTue},
+            ${isActiveWed},
+            ${isActiveThu},
+            ${isActiveFri},
+            ${isActiveSat}
+        );`;
+
+    try {
+        await db.run(insertScheduleQuery);
+        response.json({ message: 'Schedule Stored Successfully' });
+    } catch (error) {
+        console.error(error);
+        response.status(500).json({ error: 'Internal Server Error' }); // Send a JSON error response
+    }
+});
 
 app.get('/warehouse', async (request, response) => {
     const getWarehouseListQuery = `
@@ -103,7 +170,7 @@ app.post('/routeList', async (request, response) => {
     const { code, name, fromDate, toDate, isActive, userId,warehouseId } = request.body;
 
     const insertRouteQuery = `
-        INSERT INTO route (Code, Name, FromDate, ToDate, IsActive, WarehouseId, UserId)
+        INSERT INTO route (Code, Name, FromDate, ToDate, IsActive, UserId, WarehouseId)
         VALUES (
             '${code}',
             '${name}',
@@ -126,7 +193,6 @@ app.post('/routeList', async (request, response) => {
 app.put('/routeList/:routeId', async (request, response) => {
     const routeId = request.params.routeId;
     const { code, name, fromDate, toDate, isActive, userId, warehouseId } = request.body;
-
     const updateRouteQuery = `
         UPDATE route
         SET
@@ -138,11 +204,11 @@ app.put('/routeList/:routeId', async (request, response) => {
             UserId = '${userId}',
             WarehouseId = '${warehouseId}'
         WHERE
-            RouteId = ${routeId};`;
+            Id = ${routeId};`;
 
     try {
         const routeUpdate = await db.run(updateRouteQuery);
-        if (routeUpdate.changes === 1) {
+        if (routeUpdate.changes > 0) {
             response.json({ message: 'Route Updated Successfully' });
         } else {
             response.status(404).json({ error: 'Route not found' });
@@ -152,9 +218,6 @@ app.put('/routeList/:routeId', async (request, response) => {
         response.status(500).json({ error: 'Internal Server Error' });
     }
 });
-
-
-
 
 app.get('/mainRouteList', async (request, response) => {
     const getMainRouteListQuery = `
@@ -189,3 +252,5 @@ app.get('/mainRouteList', async (request, response) => {
 //         response.status(500).json({ error: 'Internal Server Error' });
 //     }
 // });
+
+
